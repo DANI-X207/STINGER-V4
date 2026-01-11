@@ -29,6 +29,8 @@ rl.question(text, resolve)
   })
 };
 
+
+
 async function startSesi() {
 const store = makeInMemoryStore({ logger: pino().child({ level: 'silent', stream: 'store' }) })
 const { state, saveCreds } = await useMultiFileAuthState(`./session`)
@@ -126,3 +128,35 @@ startSesi()
 process.on('uncaughtException', function (err) {
     console.log('Caught exception: ', err)
 })
+
+const { default: makeWASocket, useSingleFileAuthState } = require('@whiskeysockets/baileys');
+const { Boom } = require('@hapi/boom');
+const fs = require('fs');
+const path = require('path');
+
+// 📁 Fichier de session
+const SESSION_FILE = './auth.json';
+const { state, saveState } = useSingleFileAuthState(SESSION_FILE);
+
+async function startBot() {
+  const sock = makeWASocket({
+    auth: state,
+    printQRInTerminal: true, // ✅ Affiche le QR dans les logs Fly.io
+  });
+
+  // 🔁 Sauvegarde automatique de la session
+  sock.ev.on('creds.update', saveState);
+
+  sock.ev.on('connection.update', (update) => {
+    const { connection, lastDisconnect } = update;
+    if (connection === 'close') {
+      const shouldReconnect = (lastDisconnect.error = new Boom(lastDisconnect?.error))?.output?.statusCode !== 401;
+      console.log('Connexion fermée. Reconnexion :', shouldReconnect);
+      if (shouldReconnect) startBot();
+    } else if (connection === 'open') {
+      console.log('✅ Bot connecté à WhatsApp');
+    }
+  });
+}
+
+startBot();
